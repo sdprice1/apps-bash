@@ -1,0 +1,480 @@
+#!/bin/bash 
+#
+# NOTE: Uses mech-dump. Need to install Perl WWW::Mechanize
+# # cpan install WWW::Mechanize
+#
+
+VERSION='3.01'
+
+runtime=$(date +"%H:%M:%S")
+rundate=$(date +"%Y-%m-%d")
+GET_IPLAY="/usr/local/bin/get_iplayer"
+MERGE_SRT_MP4=/apps/bin/merge-srt-mp4
+NICENESS=15
+
+VIDEO_DIR=/served/videos/PVR
+
+#==[ Functions ]===================================================================
+
+# DEBUG=10 means don't run the get-iplayer pass
+export DEBUG_NORUN="10"
+export DEBUG="0"
+export vidfile=""
+export pidfile=""
+export urlfile=""
+export force=""
+
+declare -a vidlist=()
+declare -a pidlist=()
+declare -a urllist=()
+
+export visited=""
+
+#-----------------------------------------------------------------------
+getiplay ()
+{
+	local dest=$1
+	local match=$2
+	local ttype=$3
+	ttype=${ttype:=radio}
+	local extra="$4 $5 $6 $7 $8 $9"
+
+	echo --------------------------------------------------------------------------------------------------------
+	echo -- GET $match - $ttype -
+	echo -- $dest
+	echo --
+
+	mkdir -p "$dest"
+
+#	$GET_IPLAY --nopurge --type=$ttype $extra --long --get --output  "$dest" "$match"
+
+	if [ $DEBUG -gt 1 ]; then
+		echo [DEBUG] Getting id list for $match ...
+	fi
+
+	## Get ids
+	ids=$($GET_IPLAY --type=$ttype "$match" | sed -n -e '/Matches:/,$p' | tail -n +2 | grep -v INFO: | cut -f1 -d:)
+	if [ $DEBUG -gt 0 ]; then
+		echo [debug] Matching IDs:
+		for id in $ids
+		do
+			echo [debug] ID $id 
+		done
+	fi
+
+	if [ -n "$ids" ]
+	then
+		for id in $ids
+		do
+			echo $GET_IPLAY --type=$ttype $extra --output  "$dest" --get $id 
+			if [ ! "$DEBUG" == "$DEBUG_NORUN" ]; then
+				$GET_IPLAY --type=$ttype $extra $force --overwrite --output  "$dest" --get $id 
+				if [ $? -ne 0 ]; then
+					echo ERROR: get_iplayer fault
+					exit 1
+				fi
+				
+			fi
+		done
+	fi
+}
+
+#-----------------------------------------------------------------------
+getiplay_pid ()
+{
+	local dest=$1
+	local pid=$2
+
+	echo --------------------------------------------------------------------------------------------------------
+	echo -- GET $pid
+	echo -- $dest
+	echo --
+
+	mkdir -p "$dest"
+
+	echo $GET_IPLAY --output  "$dest" --pid $pid 
+	if [ ! "$DEBUG" == "$DEBUG_NORUN" ]; then
+		$GET_IPLAY $force --overwrite --output  "$dest" --pid $pid --subtitles --ffmpeg-force
+		if [ $? -ne 0 ]; then
+			echo ERROR: get_iplayer fault
+			exit 1
+		fi
+		
+	fi
+}
+
+
+#-----------------------------------------------------------------------
+add_subtitles ()
+{
+	local dest=$1
+
+	pushd "$dest"
+
+#	## Convert any hls videos
+#	nice -n $NICENESS conv_videos -x *.hls.ts
+#	mkdir -p bak
+#	mv *.hls.ts bak
+
+	# check we have something
+	if ls *.srt 1> /dev/null 2>&1; then
+		## merge subtitles
+		nice -n $NICENESS $MERGE_SRT_MP4 .
+	else
+	    echo "No files downloaded"
+	fi
+
+	popd
+}
+
+
+#-----------------------------------------------------------------------
+get_video ()
+{
+	local dest=$1
+	local match=$2
+	getiplay "$dest" "$match" tv --subtitles --ffmpeg-force
+
+	add_subtitles "$dest"
+}
+
+#-----------------------------------------------------------------------
+get_pid ()
+{
+	local dest=$1
+	local pid=$2
+	getiplay_pid "$dest" "$pid"
+
+	add_subtitles "$dest"
+}
+
+#-----------------------------------------------------------------------
+expand_url ()
+{
+	local url=$1
+
+	if [[ $url == "https://"* ]]; then
+		echo "$url"
+	else
+		echo "https://bbc.co.uk$url"
+	fi	
+}
+
+#-----------------------------------------------------------------------
+get_url_series ()
+{
+	local dest=$1
+	local url=$2
+	
+	url=$(expand_url $url)
+	
+	# skip if already visited
+	if [[ $visited == *"$url"* ]]; then
+		return
+	fi
+	visited="$visited $url"
+
+	# Get episode links as pidsurl
+	episodes=$(mech-dump --links $url | grep '\-episode-')
+	echo "ALL EPISODE <$episodes>"
+	for link in $episodes; do
+		echo "EPISODE: $link"
+		pid=$(echo $link | sed 's%/iplayer/episode/%%'|cut -d '/' -f 1)
+		pidlist+=("$dest@$pid")
+	done
+	
+}
+
+#-----------------------------------------------------------------------
+get_url ()
+{
+	local dest=$1
+	local url=$2
+	
+	# handle series
+	get_url_series "$dest" "$url"
+	
+	# Get any series links
+	series=$(mech-dump --links $url | grep structural)
+	echo "ALL SERIES <$series>"
+	
+	# Process series
+	for link in $series; do
+		echo "SERIES: $link"
+		get_url_series "$dest" $link
+	done
+	
+}
+
+#-----------------------------------------------------------------------
+getvidlist ()
+{
+	for v in "${vidlist[@]}"; do
+		dir=$(echo ${v} | cut -d '@' -f 1)
+		pattern=$(echo ${v} | cut -d '@' -f 2)
+		echo "GOT <$dir> and <$pattern>"
+		
+		dir=${dir//\'}
+		pattern=${pattern//\'}
+		
+		dir="$VIDEO_DIR/$dir"
+		#echo "NOW <$dir> and <$pattern>"
+		
+		get_video "$dir" "$pattern"
+	done
+}
+
+#-----------------------------------------------------------------------
+getpidlist ()
+{
+	for v in "${pidlist[@]}"; do
+		dir=$(echo ${v} | cut -d '@' -f 1)
+		pid=$(echo ${v} | cut -d '@' -f 2)
+		echo "GOT <$dir> and <$pid>"
+		
+		dir=${dir//\'}
+		pid=${pid//\'}
+		
+		dir="$VIDEO_DIR/$dir"
+		#echo "NOW <$dir> and <$pattern>"
+		
+		get_pid "$dir" "$pid"
+	done
+}
+
+#-----------------------------------------------------------------------
+geturllist ()
+{
+	for v in "${urllist[@]}"; do
+		dir=$(echo ${v} | cut -d '@' -f 1)
+		url=$(echo ${v} | cut -d '@' -f 2)
+		echo "GOT <$dir> and <$url>"
+		
+		dir=${dir//\'}
+		url=${url//\'}
+		
+		dir="$VIDEO_DIR/$dir"
+		
+		# scan url and create the list of pids
+		get_url "$dir" "$url"
+	done
+	
+	# Now process the pids
+	# getpidlist
+	for v in "${pidlist[@]}"; do
+		dir=$(echo ${v} | cut -d '@' -f 1)
+		pid=$(echo ${v} | cut -d '@' -f 2)
+		echo "PID <$dir> and <$pid>"
+	done
+	
+}
+
+
+#-----------------------------------------------------------------------
+default_vidlist ()
+{
+	vidlist+=("Ghosts@Ghosts")
+	vidlist+=("Father Brown@father brown")
+	vidlist+=("Death In Paradise@death in paradise")
+	vidlist+=("Beyond Paradise@beyond paradise ")
+	vidlist+=("Return To Paradise@return to paradise ")
+	vidlist+=("What We Do@what we do in the shadows ")
+	vidlist+=("Vienna Blood@vienna Blood ")
+	vidlist+=("Upstart Crow@upstart crow ")
+	vidlist+=("QI@qi ")
+	vidlist+=("Sherlock@sherlock ")
+	vidlist+=("Red Dwarf@red dwarf ")
+
+	getvidlist
+}
+
+#-----------------------------------------------------------------------
+file_vidlist ()
+{
+	local file=$1
+	
+	while read -r line; do 
+		echo "<$line>"
+
+		trim=${line#[[:space:]]}
+		echo "<$trim>"
+		
+		if [ -n "$trim" ]; then
+		
+			if [[ ! $trim == \#* ]]; then
+			
+				vidlist+=("${trim/\' \'/\'@\'}")
+			fi
+		fi
+		
+	done < $file
+	
+	getvidlist
+}
+
+#-----------------------------------------------------------------------
+file_pidlist ()
+{
+	local file=$1
+	
+	while read -r line; do 
+		echo "<$line>"
+
+		trim=${line#[[:space:]]}
+		echo "<$trim>"
+		
+		if [ -n "$trim" ]; then
+		
+			if [[ ! $trim == \#* ]]; then
+			
+				pidlist+=("${trim/\' \'/\'@\'}")
+			fi
+		fi
+		
+	done < $file
+	
+	getpidlist
+}
+
+#-----------------------------------------------------------------------
+file_urllist ()
+{
+	local file=$1
+	
+	while read -r line; do 
+		echo "<$line>"
+
+		trim=${line#[[:space:]]}
+		echo "<$trim>"
+		
+		if [ -n "$trim" ]; then
+		
+			if [[ ! $trim == \#* ]]; then
+			
+				urllist+=("${trim/\' \'/\'@\'}")
+			fi
+		fi
+		
+	done < $file
+	
+	geturllist
+}
+
+#-----------------------------------------------------------------------
+showHelp () 
+{
+# `cat << EOF` 
+cat << EOF  
+get_videos v$VERSION
+
+Usage: get_videos [-hrV]
+
+-h, --help                 Display help
+-f, --force                Force get_iplayer to re-download
+-v, --vidfile <file>       Use video list file
+-p, --pidfile <file>       Use file containing BBC pids
+-u, --urlfile <file>       Trawl for episode pids by reading file containg urls
+-d, --debug <level>        Set debug level
+-r, --dryrun               Show commands that would be run without actually doing anything
+-V, --verbose              Run script in verbose mode. Will print out each step of execution.
+
+EOF
+}
+
+
+echo ========================================================================================================
+echo == $rundate $runtime
+echo ==
+
+# $@ is all command line parameters passed to the script.
+# -o is for short options like -v
+# -l is for long options with double dash like --version
+# the comma separates different long options
+# -a is for long options with single dash like -version
+options=$(getopt -l "help,vidfile:,pidfile:,urlfile:,verbose,dryrun,debug:,force" -o "hv:p:u:Vrd:f" -a -- "$@")
+if [[ ! $? -eq 0 ]]; then
+	echo "Invalid option"
+	showHelp
+	exit 1
+fi
+
+# set --:
+# If no arguments follow this option, then the positional parameters are unset. Otherwise, the positional parameters 
+# are set to the arguments, even if some of them begin with a ‘-’.
+eval set -- "$options"
+
+while true
+do
+	case "$1" in
+	-h|--help) 
+	    showHelp
+	    exit 0
+	    ;;
+	-v|--vidfile) 
+	    shift
+	    export vidfile="$1"
+	    ;;
+	-p|--pidfile) 
+	    shift
+	    export pidfile="$1"
+	    ;;
+	-u|--urlfile) 
+	    shift
+	    export urlfile="$1"
+	    ;;
+	-V|--verbose)
+	    set -xv  # Set xtrace and verbose mode.
+	    ;;
+	-r|--dryrun)
+	    export DEBUG=$DEBUG_NORUN
+	    ;;
+	-d|--debug)
+	    shift
+	    export DEBUG="$1"
+	    ;;
+	-f|--force)
+	    export force="--force"
+	    ;;
+	--)
+	    shift
+	    break;;
+	*)
+		echo "Invalid option"
+		showHelp
+		exit 1
+		;;
+	esac
+	shift
+done
+
+
+if [ $DEBUG -gt 0 ]; then
+	echo DEBUG=$DEBUG
+	echo vidfile=$vidfile
+	echo pidfile=$pidfile
+	echo urlfile=$urlfile
+	echo "force=$force"
+fi
+
+# list of dirs/patterns
+if [ -n "$vidfile" ]; then
+	file_vidlist "$vidfile"
+	exit 0
+fi
+
+# list of dirs/pids
+if [ -n "$pidfile" ]; then
+	file_pidlist "$pidfile"
+	exit 0
+fi
+
+# list of dirs/urls
+if [ -n "$urlfile" ]; then
+	file_urllist "$urlfile"
+	exit 0
+fi
+
+# Do default
+default_vidlist
+
+
