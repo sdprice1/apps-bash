@@ -1,0 +1,181 @@
+#!/bin/bash 
+#
+
+VERSION='1.00'
+
+PVR_DIR='/served/videos/PVR'
+PLEX_DIR='/served/videos/TV Shows'
+
+#==[ Functions ]===================================================================
+
+# DEBUG=10 means don't run the get-iplayer pass
+export NORUN="0"
+export DEBUG="0"
+
+#-----------------------------------------------------------------------
+process_pvr () 
+{
+	local dir="$1"
+	
+	#echo "DIR <$dir>"
+	
+	pushd "$dir" 2>&1 >/dev/null
+	
+	for e in $(ls *.mp4); do
+		#echo "Episode: $e"
+		
+		# Expect filename to be of the form:
+		# Father_Brown_Series_9_-_09._The_Enigma_of_Antigonish_m0013dff_original_subtitle.mp4
+		#
+		# we want to move this to the Plex directory as:
+		# 'Father Brown/Season 9/Father Brown - s09e09.mp4'
+		#
+		IFS='_' read -r -a parts <<< "$e"
+		name=""
+		series=0
+		episode=0
+		state="name"
+		for p in "${parts[@]}"; do
+			#echo "p <$p>"
+			case "$state" in
+				"name")
+					if [[ "$p" == "Series" ]]; then
+						state="series"
+					else
+						name+="$p "
+					fi
+				;;
+				
+				"series")
+					series=$(expr $p + 0)
+					state="episode"
+				;;
+				
+				"episode")
+					if [[ "$p" == "-" ]]; then
+						state="episode"
+					else
+						p=${p//.}
+						episode=$(expr $p + 0)
+						state="done"
+					fi
+				;;
+				
+				*) break ;;
+			esac
+		done
+		
+		name=$(echo "$name" | xargs)
+		#echo "n=<$name> s=$series e=$episode"
+		
+		seriesStr=$(printf "%02d" $series)
+		episodeStr=$(printf "%02d" $episode)
+		
+		plex_dir="$PLEX_DIR/$name/Season $series"
+		mp4_fname="$name - s${seriesStr}e${episodeStr}.mp4"
+		
+		if [ "$NORUN" == "1" ]; then
+			echo "[dry-run] mkdir -p '$plex_dir'"
+		else
+			mkdir -p "$plex_dir"
+		fi
+		
+		# check for file existing
+		if [ -f "$plex_dir/$mp4_fname" ]; then
+			echo "File '$mp4_fname' already exists, skipping..."
+			continue
+		fi
+		
+		if [ "$NORUN" == "1" ]; then
+			echo "[dry-run] mv $e '$plex_dir/$mp4_fname'"
+		else
+			echo mv $e "$plex_dir/$mp4_fname"
+		fi
+		
+	done
+	
+	popd 2>&1 >/dev/null
+}
+
+#-----------------------------------------------------------------------
+showHelp () 
+{
+# `cat << EOF` 
+cat << EOF  
+pvr_to_plex v$VERSION
+
+Move recorded TV episodes into the correct directory/subdirectory
+for Plexmediaserver. Renames the epsidoes in sXXeXX format to make it easier
+for Plex
+
+Usage: pvr_to_plex [options] <directory>
+
+-h, --help                 Display help
+-d, --debug <level>        Set debug level
+-r, --dryrun               Show commands that would be run without actually doing anything
+-V, --verbose              Run script in verbose mode. Will print out each step of execution.
+
+EOF
+}
+
+#=======================================================================
+# $@ is all command line parameters passed to the script.
+# -o is for short options like -v
+# -l is for long options with double dash like --version
+# the comma separates different long options
+# -a is for long options with single dash like -version
+options=$(getopt -l "help,verbose,dryrun,debug:" -o "hVrd:" -a -- "$@")
+if [[ ! $? -eq 0 ]]; then
+	echo "Invalid option"
+	showHelp
+	exit 1
+fi
+
+# set --:
+# If no arguments follow this option, then the positional parameters are unset. Otherwise, the positional parameters 
+# are set to the arguments, even if some of them begin with a ‘-’.
+eval set -- "$options"
+
+while true
+do
+	case "$1" in
+	-h|--help) 
+	    showHelp
+	    exit 0
+	    ;;
+	-V|--verbose)
+	    set -xv  # Set xtrace and verbose mode.
+	    ;;
+	-r|--dryrun)
+	    export NORUN="1"
+	    ;;
+	-d|--debug)
+	    shift
+	    export DEBUG="$1"
+	    ;;
+	--)
+	    shift
+	    break
+	    ;;
+	*)	break
+		;;
+	esac
+	shift
+done
+
+# Check directory
+if [ ! -n "$1" ]; then
+	echo Error: must specify a PVR directory to process
+	exit 1
+fi
+
+dir="$PVR_DIR/$1"
+if [ ! -d "$dir" ]; then
+	echo Error: Invalid directory
+	exit 1
+fi
+
+process_pvr "$dir"
+
+
+

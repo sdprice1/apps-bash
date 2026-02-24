@@ -187,7 +187,7 @@ get_url_series ()
 		episodes=$(mech-dump --links $url | grep '\-series-')
 	fi
 	
-	echo "ALL EPISODE <$episodes>"
+	#echo "ALL EPISODE <$episodes>"
 	for link in $episodes; do
 		#echo "EPISODE: $link"
 		pid=$(echo $link | sed 's%/iplayer/episode/%%'|cut -d '/' -f 1)
@@ -207,7 +207,7 @@ get_url ()
 	
 	# Get any series links
 	series=$(mech-dump --links $url | grep structural)
-	echo "ALL SERIES <$series>"
+	#echo "ALL SERIES <$series>"
 	
 	# Process series
 	for link in $series; do
@@ -304,10 +304,10 @@ file_vidlist ()
 	local file=$1
 	
 	while read -r line; do 
-		echo "<$line>"
+		#echo "<$line>"
 
 		trim=${line#[[:space:]]}
-		echo "<$trim>"
+		#echo "<$trim>"
 		
 		if [ -n "$trim" ]; then
 		
@@ -328,10 +328,10 @@ file_pidlist ()
 	local file=$1
 	
 	while read -r line; do 
-		echo "<$line>"
+		#echo "<$line>"
 
 		trim=${line#[[:space:]]}
-		echo "<$trim>"
+		#echo "<$trim>"
 		
 		if [ -n "$trim" ]; then
 		
@@ -352,10 +352,10 @@ file_urllist ()
 	local file=$1
 	
 	while read -r line; do 
-		echo "<$line>"
+		#echo "<$line>"
 
 		trim=${line#[[:space:]]}
-		echo "<$trim>"
+		#echo "<$trim>"
 		
 		if [ -n "$trim" ]; then
 		
