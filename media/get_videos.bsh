@@ -4,7 +4,7 @@
 # # cpan install WWW::Mechanize
 #
 
-VERSION='3.01'
+VERSION='3.02'
 
 runtime=$(date +"%H:%M:%S")
 rundate=$(date +"%Y-%m-%d")
@@ -46,8 +46,6 @@ getiplay ()
 
 	mkdir -p "$dest"
 
-#	$GET_IPLAY --nopurge --type=$ttype $extra --long --get --output  "$dest" "$match"
-
 	if [ $DEBUG -gt 1 ]; then
 		echo [DEBUG] Getting id list for $match ...
 	fi
@@ -67,7 +65,9 @@ getiplay ()
 		for id in $ids
 		do
 			echo $GET_IPLAY --type=$ttype $extra --output  "$dest" --get $id 
-			if [ ! "$DEBUG" == "$DEBUG_NORUN" ]; then
+			if [ "$DEBUG" == "$DEBUG_NORUN" ]; then
+				echo "[dry-run] $GET_IPLAY --type=$ttype $extra $force --overwrite --output  '$dest' --get $id" 
+			else
 				$GET_IPLAY --type=$ttype $extra $force --overwrite --output  "$dest" --get $id 
 				if [ $? -ne 0 ]; then
 					echo ERROR: get_iplayer fault
@@ -93,7 +93,9 @@ getiplay_pid ()
 	mkdir -p "$dest"
 
 	echo $GET_IPLAY --output  "$dest" --pid $pid 
-	if [ ! "$DEBUG" == "$DEBUG_NORUN" ]; then
+	if [ "$DEBUG" == "$DEBUG_NORUN" ]; then
+		echo "[dry-run] $GET_IPLAY $force --overwrite --output '$dest' --pid $pid --subtitles --ffmpeg-force"
+	else
 		$GET_IPLAY $force --overwrite --output  "$dest" --pid $pid --subtitles --ffmpeg-force
 		if [ $? -ne 0 ]; then
 			echo ERROR: get_iplayer fault
@@ -108,6 +110,11 @@ getiplay_pid ()
 add_subtitles ()
 {
 	local dest=$1
+
+	if [ "$DEBUG" == "$DEBUG_NORUN" ]; then
+		echo "[dry-run] merge srt"
+		return
+	fi
 
 	pushd "$dest"
 
@@ -176,9 +183,13 @@ get_url_series ()
 
 	# Get episode links as pidsurl
 	episodes=$(mech-dump --links $url | grep '\-episode-')
+	if [ ! -n "$episodes" ]; then
+		episodes=$(mech-dump --links $url | grep '\-series-')
+	fi
+	
 	echo "ALL EPISODE <$episodes>"
 	for link in $episodes; do
-		echo "EPISODE: $link"
+		#echo "EPISODE: $link"
 		pid=$(echo $link | sed 's%/iplayer/episode/%%'|cut -d '/' -f 1)
 		pidlist+=("$dest@$pid")
 	done
@@ -200,7 +211,7 @@ get_url ()
 	
 	# Process series
 	for link in $series; do
-		echo "SERIES: $link"
+		#echo "SERIES: $link"
 		get_url_series "$dest" $link
 	done
 	
@@ -212,7 +223,7 @@ getvidlist ()
 	for v in "${vidlist[@]}"; do
 		dir=$(echo ${v} | cut -d '@' -f 1)
 		pattern=$(echo ${v} | cut -d '@' -f 2)
-		echo "GOT <$dir> and <$pattern>"
+		#echo "GOT <$dir> and <$pattern>"
 		
 		dir=${dir//\'}
 		pattern=${pattern//\'}
@@ -230,7 +241,7 @@ getpidlist ()
 	for v in "${pidlist[@]}"; do
 		dir=$(echo ${v} | cut -d '@' -f 1)
 		pid=$(echo ${v} | cut -d '@' -f 2)
-		echo "GOT <$dir> and <$pid>"
+		#echo "GOT <$dir> and <$pid>"
 		
 		dir=${dir//\'}
 		pid=${pid//\'}
@@ -248,24 +259,23 @@ geturllist ()
 	for v in "${urllist[@]}"; do
 		dir=$(echo ${v} | cut -d '@' -f 1)
 		url=$(echo ${v} | cut -d '@' -f 2)
-		echo "GOT <$dir> and <$url>"
+		#echo "GOT <$dir> and <$url>"
 		
 		dir=${dir//\'}
 		url=${url//\'}
-		
-		dir="$VIDEO_DIR/$dir"
 		
 		# scan url and create the list of pids
 		get_url "$dir" "$url"
 	done
 	
 	# Now process the pids
-	# getpidlist
-	for v in "${pidlist[@]}"; do
-		dir=$(echo ${v} | cut -d '@' -f 1)
-		pid=$(echo ${v} | cut -d '@' -f 2)
-		echo "PID <$dir> and <$pid>"
-	done
+#	for v in "${pidlist[@]}"; do
+#		dir=$(echo ${v} | cut -d '@' -f 1)
+#		pid=$(echo ${v} | cut -d '@' -f 2)
+#		echo "PID <$dir> and <$pid>"
+#	done
+
+	getpidlist
 	
 }
 

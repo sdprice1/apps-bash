@@ -1,0 +1,15 @@
+## Videos
+## Format 'sub-directory' 'search pattern'
+##
+'Ghosts' 'Ghosts' 
+'Father Brown' 'father brown' 
+'Death In Paradise' 'death in paradise' 
+'Beyond Paradise' 'beyond paradise' 
+'Return To Paradise' 'return to paradise' 
+'What We Do' 'what we do in the shadows' 
+'Vienna Blood' 'vienna Blood' 
+'Upstart Crow' 'upstart crow' 
+'QI' 'qi' 
+'Sherlock' 'sherlock' 
+'Red Dwarf' 'red dwarf' 
+
